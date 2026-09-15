@@ -129,7 +129,7 @@ Run without parameters to launch the guided interactive console:
 
 **Example of the script's execution**
 
-![UAG API Management Script Main Menu](img_script_api_mgmt.jpg)
+![UAG API Management Script Main Menu](img_script_api_mgmt.png)
 ![UAG Deployment Script](img_script_deploy.png)
 
 ## **Security Notes**
