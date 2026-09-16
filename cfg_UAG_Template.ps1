@@ -8,7 +8,7 @@
 
 .NOTES
    Creation Date:  2026-09-12
-   Last Update:    2026-09-14
+   Last Update:    2026-09-16
 #>
 
 # ==============================================================================
@@ -160,6 +160,18 @@ $UAG_CFG["ALL"] = @{
 
     # --- General UAG Settings ---
     uagSettings = @{}
+
+    # --- User accounts (create/modify) ---
+    adminUsers = @{
+        "monitoring" = @{
+            name                              = "monitor"
+            password                          = "Ch@ngeTh1s!"
+            enabled                           = $true
+            roles                             = @("ROLE_MONITORING")
+            userType                          = "INTERNAL"
+            adminMonitoringPasswordPreExpired = $false
+        }
+    }
 }
 
 # ==============================================================================

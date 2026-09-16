@@ -8,12 +8,12 @@ This toolkit streamlines appliance deployment and ongoing REST API configuration
 
 ### **Key Features**
 
-* **Automated OVA Deployment**: Automated provisioning using native PowerShell/PowerCLI without external tools (no VMware OVF Tool required).  
-* **Centralized & Bulk Management**: Deploy a single appliance or configure multiple UAGs simultaneously with support for global baselines and per-appliance overrides via REST API.  
-* **DPAPI Credential Security**: Administrator passwords and RADIUS shared secrets are encrypted locally using Windows Data Protection API (DPAPI) and purged from memory after execution—no plaintext secrets in configuration files.  
-* **Structured Infrastructure Placement**: Automated target folder placement, Resource Pools, and VM annotations during provisioning.  
-* **Pre-Deployment Policy Validation**: Validates password complexity against appliance security policies *before* initiating import to prevent deploying unbootable appliances.  
-* **Independent Lifecycle Operations**: Reconfigure settings, update RADIUS/SAML, or renew SSL certificates at any time via REST API without redeploying appliances.
+* **Automated OVA Provisioning**: Native PowerShell/PowerCLI deployment without external tools (no OVF Tool required), including target folder placement, Resource Pool assignment, and VM annotations.  
+* **Centralized REST API Configuration**: Single or bulk appliance configuration using standard baseline templates with per-appliance override support.  
+* **Non-Disruptive Lifecycle Operations**: Reconfigure system settings, update RADIUS/SAML IdPs, or renew SSL certificates (PFX/PEM) dynamically via REST API without redeploying VMs.  
+* **Local & Monitoring Account Management**: Automated creation and updating of local UAG user accounts (including dedicated `ROLE_MONITORING` users for NMS metrics via `/rest/v1/monitor/stats`).  
+* **Enterprise DPAPI Credential Security**: Admin passwords and RADIUS shared secrets are encrypted locally via Windows DPAPI and purged from memory immediately post-execution—ensuring zero plaintext secrets.  
+* **Pre-Flight Safety Validation**: Validates password complexity against appliance security policies and checks SSL/SAML metadata expiration *before* deployment to prevent invalid configurations.
 
 Validated on UAG versions 2512\+
 

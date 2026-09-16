@@ -3,7 +3,7 @@
    Automated REST API management script for Omnissa Unified Access Gateway (UAG).
 
 .DESCRIPTION
-   Configures system settings, Horizon Edge services, RADIUS SAML, SSL certificates and Syslog
+   Configures system settings, Horizon Edge services, RADIUS SAML, SSL certificates and Syslog, and local users
    on target Omnissa UAG appliances via REST API using DPAPI-secured credentials.
 
 .PROJECTURI https://github.com/jfacz/UAG-Automation
@@ -12,11 +12,12 @@
     Version:        2609.0
     Author:         Jan Fara
     Creation Date:  2026-08-28
-    Last Update:    2026-09-14
+    Last Update:    2026-09-16
 
 .RELEASENOTES
-   [v2609.0 - 20260914] Added support for silent execution from UAG deploy script (with Transcript logging)
+   [v2609.0 - 20260916] Added support for silent execution from UAG deploy script (with Transcript logging)
                         Added support for SAML and RADIUS authentification with stording shared secrets via DPAPI
+                        Added support for local user accounts creation/updates via REST API 
                         Bug fixes and stability improvements
    [v2608.0 - 20260828] Rewrote the previous simpler version of the script for UAG upload PEM certificate
                         UAG configuration in separate file
@@ -433,6 +434,44 @@ Function Get-RestErrorResponse {
     return $null
 }
 
+# Password Complexity Checker for UAG local accounts
+Function Test-UAGPasswordStrength {
+    param(
+        [Parameter(Mandatory=$true)] [string]$Password,
+        [Parameter(Mandatory=$true)] [string]$Username,
+        [int]$MinLength = 8
+    )
+
+    if([string]::IsNullOrWhiteSpace($Password)){
+        MsgFce "ERROR: Password for user '$($Username)' cannot be empty!" -Output error
+        return $false
+    }
+    if($Password.Length -lt $MinLength){
+        MsgFce "ERROR: Password for user '$($Username)' must have at least $($MinLength) characters (current: $($Password.Length))!" -Output error
+        return $false
+    }
+    # Check for forbidden/problematic characters in UAG API (like '+' or spaces)
+    if($Password -match '[\s+\=\"'']'){
+        MsgFce "ERROR: Password for user '$($Username)' contains invalid characters (do not use +, spaces, =, or quotes)!" -Output error
+        return $false
+    }
+    # Validate all 4 required character classes for UAG REST API
+    $hasUpper   = $Password -match '[A-Z]'
+    $hasLower   = $Password -match '[a-z]'
+    $hasDigit   = $Password -match '\d'
+    $hasSpecial = $Password -match '[!@#$%^&*()_+\-=\[\]{};:"\\|,.<>/?]'
+
+    if(-not ($hasUpper -and $hasLower -and $hasDigit -and $hasSpecial)){
+        MsgFce "ERROR: Password for user '$($Username)' must contain characters from all 4 classes: Uppercase, Lowercase, Digit, and Special character!" -Output error
+        return $false
+    }
+    #if($Password.ToLower().Contains($Username.ToLower())){
+    #    MsgFce "ERROR: Password for user '$($Username)' must not contain the username itself!" -Output error
+    #    return $false
+    #}
+    return $true
+}
+
 # ------------------------------------------------------------------------------
 # Initialization
 # ------------------------------------------------------------------------------
@@ -594,7 +633,7 @@ Try{
         MsgFce "  - Target UAG(s):  $($selUAG.Name -join ', ')" -NoTimeStamp
         if($doCert){ MsgFce "  - SSL Certificate: $mSelCert" -NoTimeStamp }
         
-        $confirm = MenuSimple -MenuItems @("Yes", "No") -Title "Do you want to proceed with UAG REST API configuration?"
+        $confirm = MenuSimple -MenuItems @("No", "Yes") -Title "Do you want to proceed with UAG REST API configuration?" -StartFrom 0
         if($confirm -ne "Yes"){
             MsgFce "WARN: Configuration aborted by user." -Output warn -LinesBefore 1 -NoTimeStamp
             return
@@ -609,6 +648,7 @@ Try{
         @{ Name = "SAML IdP Metadata";   ConfigKey = "samlSettings";   Endpoint = "/rest/v1/config/idp-ext-metadata" }
         @{ Name = "Horizon Edge (View)"; ConfigKey = "edgeService";    Endpoint = "/rest/v1/config/edgeservice/view" }
         @{ Name = "Syslog settings";     ConfigKey = "syslogSettings"; Endpoint = "/rest/v1/config/syslog" }
+        @{ Name = "Users settings";      ConfigKey = "adminUsers";     Endpoint = "/rest/v1/config/adminusers" }
     )
 
     # --- Process each selected UAG ---
@@ -695,6 +735,9 @@ Try{
             foreach($step in $API_Steps){
                 $configData = $cfguag[$step.ConfigKey]
                 if($null -eq $configData -or $configData.Count -eq 0){ continue }
+
+                # Base URI for current API step
+                $uri = $uribase + $step.Endpoint
 
                 # Safe copy of configuration dictionary
                 $stepData = @{}
@@ -867,8 +910,85 @@ Try{
                     }
                 }
 
-                # API URI Base & JSON Body
-                $uri = $uribase + $step.Endpoint
+               # Admin and Monitoring Users handling (GET to check, POST for new users, PUT for existing)
+                if($step.ConfigKey -eq "adminUsers"){
+                    # Convert hashtable or array to user collection
+                    $usersList = if($configData -is [hashtable]){ $configData.Values } elseif($configData -is [array]){ $configData } else { @($configData) }
+                    # Fetch existing users from UAG to determine HTTP verb (POST vs PUT)
+                    $existingUsers = $null
+                    try{
+                        $existingUsers = Invoke-RestMethod -Method Get -Uri $uri -Headers $uagAuthHeader -ContentType "application/json" -ErrorAction Stop
+                    } catch{
+                        MsgFce "WARN: Unable to query existing admin users on '$($uag.Name)': $($_.Exception.Message)" -Output warn
+                    }
+
+                    # Safely extract array of user objects from the 'adminUsersList' wrapper property
+                    $existingNames = @()
+                    if($existingUsers){
+                        $rawList = if($existingUsers.adminUsersList){ 
+                            $existingUsers.adminUsersList 
+                        } elseif($existingUsers.adminUsers){ 
+                            $existingUsers.adminUsers 
+                        } elseif($existingUsers -is [array]){ 
+                            $existingUsers 
+                        } else { 
+                            @($existingUsers) 
+                        }
+                        $existingNames = $rawList | ForEach-Object { $_.name }
+                    }
+
+                    foreach($userDef in $usersList){
+                        if([string]::IsNullOrWhiteSpace($userDef["name"])){ continue }
+
+                        # Check password strength before calling REST API
+                        if(-not (Test-UAGPasswordStrength -Password $userDef["password"] -Username $userDef["name"])){
+                            MsgFce "WARN: Skipping API execution for user '$($userDef['name'])' due to password policy violation." -Output warn
+                            continue
+                        }
+
+                        # Build user JSON payload matching UAG REST API specification
+                        $userPayload = [ordered]@{
+                            name                              = $userDef["name"]
+                            password                          = $userDef["password"]
+                            enabled                           = if($userDef.ContainsKey("enabled")){ [bool]$userDef["enabled"] } else { $true }
+                            roles                             = if($userDef["roles"]){ @($userDef["roles"]) } else { @("ROLE_MONITORING") }
+                            userType                          = if($userDef["userType"]){ $userDef["userType"] } else { "INTERNAL" }
+                            adminMonitoringPasswordPreExpired = if($userDef.ContainsKey("adminMonitoringPasswordPreExpired")){ [bool]$userDef["adminMonitoringPasswordPreExpired"] } else { $false }
+                        }
+
+                        # Convert to JSON and enforce array formatting for "roles" in PowerShell 5.1
+                        $userJson = ConvertTo-Json -InputObject $userPayload -Depth 5 -Compress
+                        $userJson = $userJson -replace '"roles"\s*:\s*"([^"]+)"', '"roles":["$1"]'
+                        # Determine HTTP method based on existing username match
+                        $userExists = $existingNames -contains $userDef["name"]
+                        $httpMethod = if($userExists){ "Put" } else { "Post" }
+
+                        MsgFce "INFO: $($httpMethod.ToUpper()) user '$($userDef['name'])' (Role: $($userPayload.roles -join ',')) on UAG '$($uag.Name)'..."
+                        for($attempt=1; $attempt -le $VAR.ApiMaxRetries; $attempt++){
+                            try{
+                                $null = Invoke-RestMethod -Method $httpMethod -Uri $uri -Body $userJson -ContentType "application/json" -Headers $uagAuthHeader
+                                MsgFce "SUCCESS: User '$($userDef['name'])' successfully applied via API" -Output success
+                                break
+                            } catch{
+                                if($attempt -lt $VAR.ApiMaxRetries){
+                                    MsgFce "WARN: User '$($userDef['name'])' API attempt $attempt/$($VAR.ApiMaxRetries) failed ($($_.Exception.Message)). Retrying in $($VAR.ApiRetryDelay)s..." -Output warn
+                                    Start-Sleep -Seconds $VAR.ApiRetryDelay
+                                } else{
+                                    MsgFce "ERROR: User '$($userDef['name'])' API failed after $($VAR.ApiMaxRetries) attempts! Error: $($_.Exception.Message)" -Output error
+                                    if($VAR.DEBUG){
+                                        $apiErrDetail = Get-RestErrorResponse -ErrorRecord $_
+                                        if($apiErrDetail){ MsgFce "DEBUG [UAG API Error Details]: $($apiErrDetail)" -Output note }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if($VAR.ApiStepDelay -gt 0){ Start-Sleep -Seconds $VAR.ApiStepDelay }
+                    continue # Skip standard PUT execution below for "adminUsers" step
+                }
+
+
+                # API JSON Body
                 $json = ConvertTo-Json -InputObject $stepData -Depth 10 -Compress
 
                 if($VAR.DEBUG){
@@ -888,7 +1008,7 @@ Try{
                 MsgFce "INFO: Configuring UAG $($step.Name)..."
                 for($attempt=1; $attempt -le $VAR.ApiMaxRetries; $attempt++){
                     try{
-                        $null = Invoke-RestMethod -Method Put -Uri $uri -Body $json -ContentType "application/json; charset=utf-8" -Headers $uagAuthHeader
+                        $null = Invoke-RestMethod -Method Put -Uri $uri -Body $json -ContentType "application/json" -Headers $uagAuthHeader
                         MsgFce "SUCCESS: $($step.Name) via API successfully applied" -Output success
                         break
                     } catch{
