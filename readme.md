@@ -1,46 +1,64 @@
 # **Omnissa Unified Access Gateway (UAG) Automation**
 
-A lightweight, production-ready PowerShell toolkit for automated deployment and centralized REST API configuration management of Omnissa Unified Access Gateway (UAG) appliances.
+A lightweight, production-ready PowerShell toolkit for automated OVA deployment and centralized REST API configuration management of Omnissa Unified Access Gateway (UAG) appliances.
 
 ## **Overview**
 
-This toolkit streamlines appliance deployment and ongoing REST API configuration management of Omnissa UAG appliances using native PowerShell, keeping all credentials securely protected via Windows DPAPI.
+Designed for enterprise multi-customer environments, this toolkit streamlines appliance lifecycle operations using native PowerShell while keeping all administrator credentials and shared secrets encrypted via Windows DPAPI.
+
+It addresses two major operational challenges in UAG management:
+1. **Frequent Appliance Redeployments**: Since UAG upgrades are performed by deploying fresh OVA instances rather than in-place patching, this toolkit fully automates the transition from OVA import to a fully configured, production-ready state.
+2. **Shortened SSL Certificate Validity**: With certificate expiration cycles continuously shrinking, the toolkit enables bulk, non-disruptive SSL certificate renewals across appliance clusters via REST API, including seamless CLI integration with automated ACME clients (e.g., Posh-ACME).
+
+The toolkit consists of two decoupled yet seamlessly integrated components:
+* **Deployment (`UAG_Deploy.ps1`)**: Provisions VMs in vSphere (folder structure, Resource Pools, network, and IP settings) and can automatically initiate post-boot API configuration.
+* **Lifecycle & Configuration (`UAG_API_Manage.ps1`)**: Manages Day-2 REST API operations (SAML/RADIUS, local monitoring users, SSL certificates) independently or as part of post-deployment orchestration.
+
+---
 
 ### **Key Features**
 
-* **Automated OVA Provisioning**: Native PowerShell/PowerCLI deployment without external tools (no OVF Tool required), including target folder placement, Resource Pool assignment, and VM annotations.  
-* **Centralized REST API Configuration**: Single or bulk appliance configuration using standard baseline templates with per-appliance override support.  
-* **Non-Disruptive Lifecycle Operations**: Reconfigure system settings, update RADIUS/SAML IdPs, or renew SSL certificates (PFX/PEM) dynamically via REST API without redeploying VMs.  
-* **Local & Monitoring Account Management**: Automated creation and updating of local UAG user accounts (including dedicated `ROLE_MONITORING` users for NMS metrics via `/rest/v1/monitor/stats`).  
-* **Enterprise DPAPI Credential Security**: Admin passwords and RADIUS shared secrets are encrypted locally via Windows DPAPI and purged from memory immediately post-execution—ensuring zero plaintext secrets.  
+* **Automated OVA Provisioning**: Native PowerShell/PowerCLI deployment without external tools (no OVF Tool required), including target folder placement, Resource Pool assignment, and VM annotations.
+* **Centralized REST API Management**: Single or bulk appliance configuration using standard baseline templates (`cfg_UAG.ps1`) with per-appliance override support.
+* **Non-Disruptive Lifecycle Operations**: Reconfigure system settings, update RADIUS/SAML IdPs, or renew SSL certificates (PFX/PEM) dynamically via REST API without redeploying VMs.
+* **Local & Monitoring Account Management**: Automated creation and updating of local UAG user accounts (including dedicated `ROLE_MONITORING` users for NMS metrics via `/rest/v1/monitor/stats`).
+* **Enterprise DPAPI Credential Security**: Admin passwords and RADIUS shared secrets are encrypted locally via Windows DPAPI and purged from memory immediately post-execution—ensuring zero plaintext secrets in configuration files.
 * **Pre-Flight Safety Validation**: Validates password complexity against appliance security policies and checks SSL/SAML metadata expiration *before* deployment to prevent invalid configurations.
 
-Validated on UAG versions 2512\+
+Validated on UAG versions 2512+
+
+---
 
 ## **File Structure**
-```
-├── cfg_UAG_Template.ps1    # Inventory, baseline settings, and per-appliance overrides  
-├── UAG_API_Manage.ps1      # Centralized REST API configuration & cert management  
-└── UAG_Deploy.ps1          # Appliance OVA deployment and provisioning  
+
+```text
+├── cfg_UAG.ps1            # Active inventory, baseline settings, and per-appliance overrides
+├── cfg_UAG_Template.ps1   # Template configuration file with all supported properties
+├── UAG_Deploy.ps1         # vSphere OVA deployment & automated post-boot orchestration
+└── UAG_API_Manage.ps1     # Centralized REST API configuration & SSL cert management
 ```
 ## **Prerequisites**
 
 * **PowerShell**: 5.1 or 7+  
-* **Deployment Module**: VMware.VimAutomation.Core (for vSphere deployment)  
+* **Deployment Module**: VMware.VimAutomation.Core (required for vSphere deployment via UAG_Deploy.ps1)  
 * **Network Connectivity**: TCP port 9443 reachable to UAG management interfaces
 
 ## **Quick Start**
 
-### **1\. Configure Inventory & Baseline Settings**
+### **1\. Configure UAG Inventory & Baseline Settings [`cfg_UAG.ps1`]**
 
-Copy cfg\_UAG\_Template.ps1 to cfg\_UAG.ps1 and define your UAG target appliances and configuration:
+Global settings applied to all appliances are defined in `$UAG_CFG["ALL"]`.  
+
+Copy `cfg_UAG_Template.ps1` to `cfg_UAG.ps1` and define your target appliances, SSL certificates, and baseline configuration:
 
 ```powershell
+# List of target UAG appliances
 $UAG = @(  
     @{ Name = "UAG-EXT-01"; IP = "10.0.10.11"; User = "admin" }
    ,@{ Name = "UAG-EXT-02"; IP = "10.0.10.12"; User = "admin" }
 )
 
+# SSL Certificate definitions (PFX or PEM)
 $CERTS = @{  
     "vdi.company.com (exp. 2027-01) [PFX]" = @{  
         CertType     = "PFX"  
@@ -49,13 +67,40 @@ $CERTS = @{
         CertEntity   = @("end_user")  
     }  
 }
+
+# Global baseline configuration applied to all UAGs
+$UAG_CFG["ALL"] = @{
+    #  System & General Settings
+    systemSettings = @{
+        dns                                     = "10.0.1.10 10.0.1.11"
+        dnsSearch                               = "company.com"
+        ntpServers                              = "10.0.1.10 10.0.1.11"
+        ceipEnabled                             = $false
+    }
+    adminUsers = @{
+        "monitoring" = @{
+            name                              = "monitoring"
+            password                          = "VDI!Moni70ring" # Requires all 4 character classes
+            enabled                           = $true
+            roles                             = @("ROLE_MONITORING")
+            userType                          = "INTERNAL"
+            adminMonitoringPasswordPreExpired = $false
+        }
+    }
+}
 ```
-* Global settings applied to all appliances are defined in $UAG\_CFG\["ALL"\].  
-* Appliance-specific overrides can be defined under $UAG\_CFG["<ApplianceName\>"\].
 
-### **2\. Automated Deployment (UAG\_Deploy.ps1)**
+**Per-Appliance Overrides:** Define custom settings for specific appliances (e.g., distinct host entries or SAML IdPs) under `$UAG_CFG["<ApplianceName>"]`:
 
-Configure your target platform settings, enable post-deployment automation flags in *\$UAG\_base*, and set the API orchestration block *\$UAG\_ApiCfg*:
+```powershell
+$UAG_CFG["UAG-EXT-01"] = @{
+    edgeService = @{ hostEntries = @("10.0.10.50 vdi.company.com") }
+}
+```
+
+### **2\. Automated Deployment [`UAG_Deploy.ps1`]**
+
+Configure your target platform settings, enable post-deployment automation flags in `$UAG_base`, and set the API orchestration block `$UAG_ApiCfg`:
 
 ```powershell
 
@@ -79,19 +124,19 @@ Run deploy script:
 ```powershell
 .\UAG_Deploy.ps1
 ```
-*Deploys the OVA, organizes the VM into the target structure, powers it on, secures credentials via DPAPI, and triggers automated API configuration.*
+*Deploys the OVA, places the VM in the target vSphere structure, powers it on, waits for port 9443 readiness, and triggers automated REST API configuration.*
 
-## **Ongoing Management (UAG\_API\_Manage.ps1)**
+## **UAG API Management [`UAG_API_Manage.ps1`]**
 
 Use this script at any time to reconfigure UAG settings, update RADIUS/SAML, or renew SSL certificates across one or all appliances via REST API.
 
-### **Interactive Menu**
+### **Interactive Console Mode**
 
-Run without parameters to launch the guided interactive console:
+Run without parameters to launch the guided console menu:
 ```powershell
 .\UAG_API_Manage.ps1
 ```
-### **Silent & Bulk Operations (CLI)**
+### **CLI & Automation Mode (Silent Execution)**
 
 **Apply configuration only to a single appliance:**
 ```powershell
@@ -101,12 +146,12 @@ Run without parameters to launch the guided interactive console:
 ```powershell
 .\UAG_API_Manage.ps1 -Mode CfgConfigAndCert -TargetUAG ALL -CertName "vdi.company.com (exp. 2027-01) [PFX]" -CertPfxPassword "SecretPass123"
 ```
-**Bulk update SSL certificate only across ALL appliances:**
+**Bulk upload SSL certificate only (ACME renewal hook compatible):**
 ```powershell
-# PFX Certificate  
+# PFX Certificate upload 
 .\UAG_API_Manage.ps1 -Mode CfgCertOnly -TargetUAG ALL -CertPfxPath "C:\Certs\vdi.pfx" -CertPfxPassword "SecretPass123"
 
-# PEM Certificate Chain + Private Key (Dynamic CLI Upload)  
+# PEM Certificate Chain + Private Key (Dynamic CLI upload) 
 .\UAG_API_Manage.ps1 -Mode CfgCertOnly -TargetUAG ALL -CertPem "C:\Certs\cert.pem" -CertKeyPem "C:\Certs\key.pem"
 ```
 ### **CLI Parameters Reference**
@@ -127,10 +172,34 @@ Run without parameters to launch the guided interactive console:
 | \-RadiusSecret | String | Primary RADIUS shared secret for non-interactive execution. |
 | \-RadiusSecret2 | String | Secondary RADIUS shared secret for non-interactive execution. |
 
-**Example of the script's execution**
+### Example of the script's execution
 
 ![UAG API Management Script Main Menu](img_script_api_mgmt.png)
 ![UAG Deployment Script](img_script_deploy.png)
+
+### Troubleshooting and Common Issues
+* **DPAPI Credential Decryption Errors**
+    * _.txt_ credential files generated by DPAPI are bound to the specific Windows user account and computer context.
+    * If executing under a scheduled task or a different user account, re-run the script interactively under that context to generate a valid DPAPI secret file, or delete the existing file to reset it.
+
+* **HTTP 400 Bad Request on User Creation** (`adminUsers`):
+    * UAG REST API enforces passwords containing all 4 character classes (uppercase, lowercase, digits, and special characters) with a minimum length of 8 characters.
+    * Avoid problematic characters in local passwords such as +, spaces, =, or quotes as they are rejected by the UAG backend validator.
+
+* **UAG Management API Unreachable (Port 9443)**
+    * Ensure TCP port 9443 is allowed through firewalls between the execution host and UAG interfaces.
+    * Post-deployment, UAG daemons typically require 1 to 3 minutes after initial boot before port 9443 starts accepting REST API connections.
+
+* **HTTP 400 Bad Request when Accessing Port 9443 via Hostname**
+    * Occurs when accessing UAG via hostname while IP access works. Ensure the Allow Host Header property in systemSettings matches your management FQDN.
+
+### API Documentation & Resources
+Interactive UAG Swagger UI is available directly on deployed appliances:
+`https://<UAG-IP>:9443/swagger-ui/index.html`
+
+* [Omnissa UAG REST API Documentation](https://developer.omnissa.com/uag-rest-apis/getting-started-guide)
+* [Omnissa Developer Portal](https://developer.omnissa.com)
+* [Broadcom VMware PowerCLI Documentation](https://developer.omnissa.com)
 
 ## **Security Notes**
 
