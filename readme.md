@@ -45,7 +45,7 @@ Validated on UAG versions 2512+
 
 ## **Quick Start**
 
-### **1\. Configure UAG Inventory & Baseline Settings [`cfg_UAG.ps1`]**
+### **1\. UAG Inventory Configuration & Baseline Settings [`cfg_UAG.ps1`]**
 
 Global settings applied to all appliances are defined in `$UAG_CFG["ALL"]`.  
 
@@ -98,33 +98,42 @@ $UAG_CFG["UAG-EXT-01"] = @{
 }
 ```
 
-### **2\. Automated Deployment [`UAG_Deploy.ps1`]**
+### **2\. UAG Deployment and Automated UAG Configuration [`UAG_Deploy.ps1`]**
 
-Configure your target platform settings, enable post-deployment automation flags in `$UAG_base`, and set the API orchestration block `$UAG_ApiCfg`:
+When deploying a new UAG appliance (or performing a version upgrade via redeploy), first configure the `$UAG_base` configuration block in the header of `UAG_Deploy.ps1`. This defines the target vSphere infrastructure and network parameters:
+* **Target Infrastructure**: vCenter FQDN, target ESXi Host/Cluster, Datastore, vSphere VM Folder placement, and Resource Pool.
+* **Appliance Network**: Network port group mappings, static IP addresses, netmask, default gateway, and DNS settings.
+
+Next, set the post-deployment execution switches and the API orchestration block (`$UAG_ApiCfg`):
 
 ```powershell
-
-# Execution Switches 
-$UagPowerOn = $true   # Automatically power on VM post-import
-$UagConfig  = $true   # Trigger API management workflow upon boot
+# Automatic Power-On and REST API Orchestration (part of $UAG_base)
+UagPowerOn = $true   # Automatically power on VM post-import
+UagConfig  = $true   # Automatically run API management workflow after boot
 
 # Post-Deployment API Orchestration Settings
 $UAG_ApiCfg = @{
-    ScriptName = "UAG_API_Manage.ps1"
-    SecCredUAG = "sec_uag_{0}_$($env:COMPUTERNAME)_$($env:USERNAME).txt"
-    Params     = @{
+    ScriptName = "UAG_API_Manage.ps1"  # Relative or full script path
+    SecCredUAG = "sec_uag_{0}_$($env:COMPUTERNAME)_$($env:USERNAME).txt" # DPAPI credential template filemask
+
+    # Script parameters passed directly to UAG_API_Manage.ps1
+    Params = @{
         UagCfg   = "cfg_UAG.ps1"
         Mode     = "CfgConfigAndCert"  # CfgConfigOnly | CfgCertOnly | CfgConfigAndCert
-        CertName = "vdi.company.com (exp. 2027-01) [PFX]"
+        CertName = "vdi.company.com (exp. 2027-01) [PFX]" # Prompts for PFX password if required
     }
 }
 ```
-
 Run deploy script:
 ```powershell
 .\UAG_Deploy.ps1
 ```
-*Deploys the OVA, places the VM in the target vSphere structure, powers it on, waits for port 9443 readiness, and triggers automated REST API configuration.*
+
+**Execution Workflow & Expected Outcome:**
+* Imports the OVA appliance directly into vSphere using native PowerCLI (no external OVF Tool required).
+* Organizes the VM into the target vSphere folder, Resource Pool, and Datastore with proper VM annotations.
+* Powers on the VM and polls the management interface until TCP port 9443 (REST API) becomes responsive.
+* Automatically triggers `UAG_API_Manage.ps1` to apply global baseline settings, Edge services, SSL certificates, and local accounts. Within minutes, the appliance is fully deployed, secured, configured, and ready for production.
 
 ## **UAG API Management [`UAG_API_Manage.ps1`]**
 
@@ -199,7 +208,7 @@ Interactive UAG Swagger UI is available directly on deployed appliances:
 
 * [Omnissa UAG REST API Documentation](https://developer.omnissa.com/uag-rest-apis/getting-started-guide)
 * [Omnissa Developer Portal](https://developer.omnissa.com)
-* [Broadcom VMware PowerCLI Documentation](https://developer.omnissa.com)
+* [Broadcom VMware PowerCLI Documentation](https://developer.broadcom.com/powercli)
 
 ## **Security Notes**
 
