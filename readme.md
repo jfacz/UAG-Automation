@@ -8,7 +8,7 @@ Designed for enterprise multi-customer environments, this toolkit streamlines ap
 
 It addresses two major operational challenges in UAG management:
 1. **Frequent Appliance Redeployments**: Since UAG upgrades are performed by deploying fresh OVA instances rather than in-place patching, this toolkit fully automates the transition from OVA import to a fully configured, production-ready state.
-2. **Shortened SSL Certificate Validity**: With certificate expiration cycles continuously shrinking, the toolkit enables bulk, non-disruptive SSL certificate renewals across appliance clusters via REST API, including seamless CLI integration with automated ACME clients (e.g., Posh-ACME).
+2. **Shortened SSL Certificate Validity**: With certificate expiration cycles continuously shrinking, the toolkit enables bulk, non-disruptive SSL certificate renewals (since UAG 2606 version) across appliance clusters via REST API, including seamless CLI integration with automated ACME clients (e.g., Posh-ACME).
 
 The toolkit consists of two decoupled yet seamlessly integrated components:
 * **Deployment (`UAG_Deploy.ps1`)**: Provisions VMs in vSphere (folder structure, Resource Pools, network, and IP settings) and can automatically initiate post-boot API configuration.
