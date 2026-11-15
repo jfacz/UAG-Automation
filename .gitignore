@@ -1,0 +1,23 @@
+# Folders
+Customers/
+Logs/
+OLD/
+
+# Posh-ACME data (account keys, certificates, private keys)
+Posh-ACME/
+
+# Real configuration (keep only the samples in example*/)
+/cfg_UAG.ps1
+/cfg_UAG_Deploy.ps1
+/cfg_UAG_Deploy_*.ps1
+/cfg_UAG_LetsEncryptCert.ps1
+
+# Secrets (DPAPI) - bound to the user/computer, never publish
+sec_*.txt
+
+# Certificates and keys
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt

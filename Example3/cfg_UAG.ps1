@@ -1,14 +1,18 @@
 <#
 .SYNOPSIS
-   Template configuration and inventory definition file for Omnissa Unified Access Gateway (UAG) API Management.
+   Configuration and inventory of Omnissa Unified Access Gateway (UAG) appliances for UAG_Config.ps1
 
 .DESCRIPTION
-   Defines UAG appliance inventory ($UAG), SSL certificates ($CERTS), global default settings ($UAG_CFG["ALL"]), 
-   and appliance-specific overrides ($UAG_CFG["<Appliance_Name>"]) used by UAG_API_Manage.ps1.
+   Defines UAG appliance inventory ($UAG), SSL certificates ($CERTS), global default settings ($UAG_CFG["ALL"])
+   and appliance-specific overrides ($UAG_CFG["<Appliance_Name>"]).
+
+   Values in the form <...> are placeholders - the script aborts until they are replaced with real values (or removed).
 
 .NOTES
-   Creation Date:  2026-09-12
-   Last Update:    2026-09-16
+   An internal UAG (password) and an external UAG (RADIUS MFA), Let's Encrypt certificate.
+
+.LINK
+   https://github.com/jfacz/UAG-Automation
 #>
 
 # ==============================================================================
@@ -16,13 +20,11 @@
 # ==============================================================================
 # Array of target UAG appliances to be configured via REST API.
 $UAG = @(
-    # External
-    @{ Name = "UAG-EXT-01"; IP = "10.0.10.11"; User = "admin" }
-   ,@{ Name = "UAG-EXT-02"; IP = "10.0.10.12"; User = "admin" }
-    
     # Internal
-   #,@{ Name = "UAG-INT-01"; IP = "10.0.20.11"; User = "admin" }
-   #,@{ Name = "UAG-INT-02"; IP = "10.0.20.12"; User = "admin" }
+    @{ Name = "VDI-UAGI01"; IP = "<10.0.10.11>"; User = "admin" }
+
+    # External
+    @{ Name = "VDI-UAGE01"; IP = "<10.0.10.12>"; User = "admin" }
 )
 
 # ==============================================================================
@@ -31,19 +33,10 @@ $UAG = @(
 # Hashtable of SSL certificates (PFX or PEM format) to be uploaded to UAG.
 # Target Cerificate Entitiy: @("end_user"), @("admin"), or both @("end_user", "admin")
 $CERTS = @{
-    # Example 1: PKCS#12 (PFX) Certificate
-    "vdi.company.com (exp. 2027-01) [PFX]" = @{
-        CertType     = "PFX"
-        CertPfxPath  = "C:\Certs\vdi_company_com.pfx"
-        CertPfxAlias = ""
-        CertEntity   = @("end_user")
-    }
-
-    # Example 2: PEM Certificate Full Chain + RSA Private Key
-    "vdi.company.com (exp. 2027-01) [PEM]" = @{
+    "vdi.company.com [PEM]" = @{
         CertType   = "PEM"
-        CertPem    = "C:\Certs\vdi_company_com.pem"
-        CertKeyPem = "C:\Certs\vdi_company_com.key"
+        CertPem    = "<C:\Scripts\UAG-Automation\Posh-ACME\LE_PROD\1234567890\vdi.company.com\fullchain.cer>"
+        CertKeyPem = "<C:\Scripts\UAG-Automation\Posh-ACME\LE_PROD\1234567890\vdi.company.com\cert.key>"
         CertEntity = @("end_user")
     }
 }
@@ -58,15 +51,15 @@ $UAG_CFG["ALL"] = @{
 
     # --- System & General Settings ---
     systemSettings = @{
-        uagName                                 = "UAG-DEFAULT"
-        dns                                     = "10.0.1.10 10.0.1.11"
-        dnsSearch                               = "company.com"
-        ntpServers                              = "10.0.1.10 10.0.1.11"
+        uagName                                 = "<UagName>"
+        dns                                     = "<10.0.1.10 10.0.1.11>"
+        dnsSearch                               = "<company.com>"
+        ntpServers                              = "<10.0.1.10 10.0.1.11>"
+        #hostClockSyncEnabled                    = $true
         adminPasswordExpirationDays             = 0        # 0 = Password never expires
         monitoringUsersPasswordExpirationDays   = 0
         sessionTimeout                          = 72000000 # Idle session timeout in ms (default: 36000000 = 10h)
         unrecognizedSessionsMonitoringEnabled   = $false
-        hostClockSyncEnabled                    = $false
         ceipEnabled                             = $false   # Customer Experience Improvement Program
         cipherSuites                            = "TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
     }
@@ -75,70 +68,27 @@ $UAG_CFG["ALL"] = @{
     edgeService = @{
         enabled                         = $true
         identifier                      = "VIEW"
-        gatewayLocation                 = "External" # External | Internal
+        gatewayLocation                 = "Internal" # External | Internal
+        hostEntries                     = @("<10.0.1.30 vdi-cs01.company.com vdi-cs01>")
         
         # Horizon Connection Server / Load Balancer Target
-        proxyDestinationUrl             = "https://horizon-cs.company.com"
+        proxyDestinationUrl             = "<https://vdi-cs01.company.com>"
         proxyDestinationUrlThumbprints  = ""         # Optional SHA-256 thumbprint if trustedCertificates are omitted
         proxyDestinationIPSupport       = "IPV4"
         
         # External URLs & Gateway Services
         blastEnabled                    = $true
-        blastExternalUrl                = "https://vdi.company.com:8443"
+        blastExternalUrl                = "https://vdi.company.com:443"
         tunnelEnabled                   = $true
         tunnelExternalUrl               = "https://vdi.company.com:443"
         pcoipEnabled                    = $false
 
         # Trusted Root & Intermediate CA PEM files for Connection Server SSL validation
-        trustedCertificates = @(
-            "C:\Certs\Company_RootCA.pem",
-            "C:\Certs\Company_SubCA.pem"
-        )
-
-        # Blast / Tunnel proxy PEM certificates (optional) 
-         #proxyBlastPemCert  = "C:\Certs\vdi_blast_tunnel.pem"
-         #proxyTunnelPemCert = "C:\Certs\vdi_blast_tunnel.pem"
+        trustedCertificates = @("<C:\Install\Cert\company_ca.cer>")
 
         # Primary Authentication Method
         # Options: "sp-auth" (Password) | "radius-auth" | "saml-auth" | "saml-auth,radius-auth"
-        authMethods                     = "radius-auth"
-         #idpEntityID                     = "Entra_ID_Company" # Links to SAML metadata entityID
-
-        # Additional Horizon Options
-        matchWindowsUserName            = $true
-        windowsSSOEnabled               = $true
-        radiusUsernameLabel             = "e-mail address"
-        radiusPasscodeLabel             = "password"
-    }
-
-    # --- SAML Identity Provider (IdP) Metadata ---
-    samlSettings = @{
-        idpMetadataPath = "C:\SAML\EntraID_Metadata.xml" # Path to Entra ID / Okta / Google XML metadata file
-        entityID        = "Entra_ID_Company"           # Entity ID registered in UAG
-    }
-
-    # --- RADIUS 2FA / MFA Authentication ---
-    radiusSettings = @{
-        name              = "radius-auth"
-        enabled           = "true"
-        radiusDisplayHint = "Company MFA"
-        
-        # Primary RADIUS Server
-        hostName          = "radius1.company.com"
-        authPort          = "1812"
-        authType          = "MSCHAP2" # PAP | CHAP | MSCHAP2
-        serverTimeout     = "8"
-        numAttempts       = "3"
-        sharedSecret      = "" # Handled securely via DPAPI prompt or script parameter
-        
-        # Secondary / Backup RADIUS Server (Optional)
-        enabledAux        = "true"
-        hostName_2        = "radius2.company.com"
-        authPort_2        = "1812"
-        authType_2        = "MSCHAP2"
-        serverTimeout_2   = "8"
-        numAttempts_2     = "3"
-        sharedSecret_2    = "" # Handled securely via DPAPI prompt or script parameter
+        authMethods                     = "sp-auth"
     }
 
     # --- Syslog Remote Logging ---
@@ -147,8 +97,8 @@ $UAG_CFG["ALL"] = @{
         syslogServerSettings = @(
             @{
                 syslogSettingChanged          = $true
-                syslogSettingName             = "SIEM_Log_Collector"
-                syslogUrl                     = "siem.company.com:5140"
+                syslogSettingName             = "Syslog"
+                syslogUrl                     = "<10.0.1.50:514>"
                 syslogCategory                = "ALL"          # ALL | AUDIT_ONLY
                 syslogCategoryList            = @("ALL")       # ALL, AUDIT, APPLICATION, TRACEABILITY, STATS, DEPLOYMENT
                 syslogFormat                  = "TEXT"
@@ -165,7 +115,7 @@ $UAG_CFG["ALL"] = @{
     adminUsers = @{
         "monitoring" = @{
             name                              = "monitor"
-            password                          = "Ch@ngeTh1s!"
+            password                          = ""
             enabled                           = $true
             roles                             = @("ROLE_MONITORING")
             userType                          = "INTERNAL"
@@ -179,25 +129,57 @@ $UAG_CFG["ALL"] = @{
 # ==============================================================================
 # Override global defaults for specific UAG instances (e.g., custom host entries or distinct IdPs).
 
-# --- Override Example 1: Local Host Entries ---
-$uagName = "UAG-EXT-01"
+# --- Override VDI-UAGI01 (Primary Internal) ---
+$uagName = "VDI-UAGI01"
 $UAG_CFG[$uagName] = @{
     systemSettings = @{
         uagName = $uagName
     }
     edgeService = @{
-        hostEntries = @("10.0.10.50 vdi.company.com")
+        gatewayLocation = "Internal"
     }
 }
 
-# --- Override Example 2: SAML Authentication ---
-$uagName = "UAG-EXT-02"
+# --- Override VDI-UAGE01 (Primary External) ---
+$uagName = "VDI-UAGE01"
 $UAG_CFG[$uagName] = @{
     systemSettings = @{
         uagName = $uagName
     }
     edgeService = @{
-        authMethods = "saml-auth"
-        idpEntityID = "Entra_ID_Company"
+        gatewayLocation = "External"
+        # Primary Authentication Method
+        authMethods = "radius-auth"
+
+        # Additional Horizon Options
+        matchWindowsUserName = $true
+        windowsSSOEnabled    = $true
+        radiusUsernameLabel  = "e-mail address"
+        radiusPasscodeLabel  = "password"
     }
+
+    # --- RADIUS 2FA / MFA Authentication ---
+    radiusSettings = @{
+        name              = "radius-auth"
+        enabled           = "true"
+        radiusDisplayHint = "Company"
+        
+        # Primary RADIUS Server
+        hostName          = "<radius1.company.com>"
+        authPort          = "1812"
+        authType          = "MSCHAP2" # PAP | CHAP | MSCHAP2
+        serverTimeout     = "8"
+        numAttempts       = "3"
+        sharedSecret      = "" # Handled securely via DPAPI prompt or script parameter
+        
+        # Secondary / Backup RADIUS Server (Optional)
+        enabledAux        = "true"
+        hostName_2        = "<radius2.company.com>"
+        authPort_2        = "1812"
+        authType_2        = "MSCHAP2"
+        serverTimeout_2   = "8"
+        numAttempts_2     = "3"
+        sharedSecret_2    = "" # Handled securely via DPAPI prompt or script parameter
+    }
+
 }
